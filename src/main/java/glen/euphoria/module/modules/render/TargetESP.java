@@ -1,0 +1,152 @@
+package glen.euphoria.module.modules.render;
+
+import com.mojang.blaze3d.systems.RenderSystem;
+import glen.euphoria.event.impl.render.Render3DEvent;import glen.euphoria.module.Category;
+import glen.euphoria.module.Module;
+import glen.euphoria.module.setting.ColorSetting;
+import glen.euphoria.module.setting.ModeSetting;
+import glen.euphoria.module.setting.NumberSetting;
+import glen.euphoria.utils.render.Render3DEngine;
+import meteordevelopment.orbit.EventHandler;
+import net.minecraft.client.render.OverlayTexture;
+import net.minecraft.client.render.RenderLayers;
+import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.RotationAxis;
+import net.minecraft.util.math.Vec3d;
+import org.joml.Matrix4f;
+
+import java.awt.*;
+
+public final class TargetESP extends Module {
+
+    private static final Identifier FIREFLY_TEXTURE = Identifier.of("euphoria", "textures/visuals/firefly.png");
+    private static final int FULL_BRIGHT = 0xF000F0;
+
+    private final ModeSetting targets = new ModeSetting("Targets", "Players", "Players", "Living");
+    private final NumberSetting layers = new NumberSetting("Layers", 1, 5, 3, 1);
+    private final NumberSetting orbsPerLayer = new NumberSetting("Orbs Per Layer", 5, 20, 14, 1);
+    private final NumberSetting orbSize = new NumberSetting("Orb Size", 0.1, 0.8, 0.3, 0.05);
+    private final NumberSetting speed = new NumberSetting("Speed", 0.5, 5.0, 2.5, 0.1);
+    private final NumberSetting heightOffset = new NumberSetting("Height Offset", 0.0, 2.0, 1.0, 0.1);
+    private final ModeSetting colorMode = new ModeSetting("Color Mode", "Single", "Single", "Gradient");
+    private final ColorSetting color = new ColorSetting("Color", new Color(120, 240, 255, 220));
+    private final ColorSetting gradientColor1 = new ColorSetting("Gradient Color 1", new Color(255, 0, 0, 220));
+    private final ColorSetting gradientColor2 = new ColorSetting("Gradient Color 2", new Color(0, 0, 255, 220));
+
+    public TargetESP() {
+        super("Target ESP", "Ghost-like spiral orbs around players", -1, Category.RENDER);
+        addSettings(targets, layers, orbsPerLayer, orbSize, speed, heightOffset, colorMode, color,
+                gradientColor1, gradientColor2);
+    }
+
+    @EventHandler
+    private void onRender3D(Render3DEvent event) {
+        if (isNull()) return;
+
+        MatrixStack stack = event.getMatrixStack();
+        float tickDelta = mc.getRenderTickCounter().getTickProgress(true);
+
+        // The deleted POSITION_TEX_COLOR shader path is replaced by the vanilla emissive
+        // entity layer, which carries the custom firefly texture through the new pipeline.
+        VertexConsumerProvider.Immediate immediate =
+                mc.getBufferBuilders().getEntityVertexConsumers();
+        VertexConsumer buffer = immediate.getBuffer(RenderLayers.entityTranslucentEmissive(FIREFLY_TEXTURE));
+
+        float size = orbSize.getValueFloat();
+        float yOff = heightOffset.getValueFloat();
+        Color c = color.getValue();
+        int numLayers = layers.getValueInt();
+        int orbs = orbsPerLayer.getValueInt();
+        boolean useGradient = colorMode.isMode("Gradient");
+
+        float iAge = (System.currentTimeMillis() % 100000) / 50.0f;
+        float ageMultiplier = iAge * speed.getValueFloat();
+
+        for (Entity entity : mc.world.getEntities()) {
+            if (!shouldRender(entity)) continue;
+
+            Vec3d pos = Render3DEngine.getInterpolatedPos(entity, tickDelta);
+            double baseX = pos.x;
+            double baseY = pos.y + yOff;
+            double baseZ = pos.z;
+
+            for (int j = 0; j < numLayers; j++) {
+                float jOffset = j * 120;
+                float jMultiplier = j + 1;
+
+                for (int i = 0; i <= orbs; i++) {
+                    float iFloat = (float) i;
+                    double radians = Math.toRadians(((iFloat / 1.5f + iAge * speed.getValueFloat()) * 8 + jOffset) % 2880);
+                    double sinQuad = Math.sin(Math.toRadians(ageMultiplier + i * jMultiplier) * 3f) / 1.8f;
+                    float offset = iFloat / orbs;
+
+                    int orbColor;
+                    if (useGradient) {
+                        Color blendedColor = blendColors(gradientColor1.getValue(), gradientColor2.getValue(), offset);
+                        orbColor = applyOpacity(blendedColor.getRGB(), offset);
+                    } else {
+                        orbColor = applyOpacity(c.getRGB(), offset);
+                    }
+
+                    double ghostX = Math.cos(radians) * entity.getWidth();
+                    double ghostY = sinQuad;
+                    double ghostZ = Math.sin(radians) * entity.getWidth();
+
+                    stack.push();
+                    stack.translate(baseX + ghostX, baseY + ghostY, baseZ + ghostZ);
+                    stack.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-mc.gameRenderer.getCamera().getYaw()));
+                    stack.multiply(RotationAxis.POSITIVE_X.rotationDegrees(mc.gameRenderer.getCamera().getPitch()));
+
+                    MatrixStack.Entry entry = stack.peek();
+                    Matrix4f matrix = entry.getPositionMatrix();
+
+                    emitVertex(buffer, entry, matrix, -size, size, 0f, 1f, orbColor);
+                    emitVertex(buffer, entry, matrix, size, size, 1f, 1f, orbColor);
+                    emitVertex(buffer, entry, matrix, size, -size, 1f, 0f, orbColor);
+                    emitVertex(buffer, entry, matrix, -size, -size, 0f, 0f, orbColor);
+
+                    stack.pop();
+                }
+            }
+        }
+
+        immediate.draw(RenderLayers.entityTranslucentEmissive(FIREFLY_TEXTURE));
+    }
+
+    private void emitVertex(VertexConsumer buffer, MatrixStack.Entry entry, Matrix4f matrix,
+                            float x, float y, float u, float v, int color) {
+        buffer.vertex(matrix, x, y, 0f)
+                .color(color)
+                .texture(u, v)
+                .overlay(OverlayTexture.DEFAULT_UV)
+                .light(FULL_BRIGHT)
+                .normal(entry, 0f, 0f, 1f);
+    }
+
+    private Color blendColors(Color color1, Color color2, float ratio) {
+        ratio = Math.min(1, Math.max(0, ratio));
+        int r = (int) (color1.getRed() * (1 - ratio) + color2.getRed() * ratio);
+        int g = (int) (color1.getGreen() * (1 - ratio) + color2.getGreen() * ratio);
+        int b = (int) (color1.getBlue() * (1 - ratio) + color2.getBlue() * ratio);
+        int a = (int) (color1.getAlpha() * (1 - ratio) + color2.getAlpha() * ratio);
+        return new Color(r, g, b, a);
+    }
+
+    private int applyOpacity(int colorInt, float opacity) {
+        opacity = Math.min(1, Math.max(0, opacity));
+        Color color = new Color(colorInt, true);
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), (int) (color.getAlpha() * opacity)).getRGB();
+    }
+
+    private boolean shouldRender(Entity entity) {
+        if (entity == mc.player) return false;
+        if (targets.isMode("Players")) return entity instanceof PlayerEntity;
+        return entity instanceof LivingEntity;
+    }
+}
