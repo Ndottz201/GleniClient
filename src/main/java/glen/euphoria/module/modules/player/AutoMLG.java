@@ -1,0 +1,122 @@
+package glen.euphoria.module.modules.player;
+
+import glen.euphoria.event.impl.player.TickEvent;
+import glen.euphoria.mixin.MinecraftClientAccessor;
+import glen.euphoria.module.Category;
+import glen.euphoria.module.Module;
+import glen.euphoria.module.setting.BooleanSetting;
+import glen.euphoria.module.setting.NumberSetting;
+import glen.euphoria.utils.mc.InventoryUtil;
+import glen.euphoria.utils.mc.SlotGuard;
+import glen.euphoria.utils.rotation.RotationController;
+import meteordevelopment.orbit.EventHandler;
+import net.minecraft.item.Items;
+import net.minecraft.util.math.BlockPos;
+
+public final class AutoMLG extends Module {
+    private final NumberSetting fallDistance = new NumberSetting("Fall Distance", 3, 40, 8, 1);
+    private final BooleanSetting pickUp = new BooleanSetting("Pick Up", true);
+    private int stage;
+    private int ticks;
+    private int storedSlot = -1;
+    private float storedPitch;
+    private boolean changedPitch;
+
+    public AutoMLG() {
+        super("Auto MLG", "Places water to negate fall damage", -1, Category.PLAYER);
+        this.addSettings(fallDistance, pickUp);
+    }
+
+    @EventHandler
+    private void onTick(TickEvent event) {
+        if (isNull()) return;
+        if (stage == 0) {
+            tryStart();
+        } else if (stage == 1) {
+            handlePlacement();
+        } else if (stage == 2) {
+            handlePickup();
+        } else if (stage == 3) {
+            finishSequence();
+        }
+    }
+
+    private void tryStart() {
+        if (mc.player.isOnGround()) return;
+        if (mc.player.isTouchingWater()) return;
+        if (mc.player.fallDistance < fallDistance.getValue()) return;
+        if (!InventoryUtil.hasItem(Items.WATER_BUCKET)) return;
+        storedSlot = mc.player.getInventory().getSelectedSlot();
+        storedPitch = mc.player.getPitch();
+        if (!InventoryUtil.swapToSlot(Items.WATER_BUCKET)) return;
+        stage = 1;
+        ticks = 0;
+        changedPitch = false;
+    }
+
+    private void handlePlacement() {
+        if (!changedPitch) {
+            RotationController.request(mc.player.getYaw(), 89.5f, 5);
+            changedPitch = true;
+            return;
+        }
+        if (mc.player.isOnGround()) {
+            stage = 3;
+            return;
+        }
+        int distance = findGroundDistance();
+        ticks++;
+        if (distance > 2) return;
+        if (ticks % 2 != 0) return;
+        if (!InventoryUtil.swapToSlot(Items.WATER_BUCKET)) return;
+        if (mc.player.getMainHandStack().isOf(Items.WATER_BUCKET)) {
+            ((MinecraftClientAccessor) mc).invokeDoItemUse();
+            stage = pickUp.getValue() ? 2 : 3;
+            ticks = 0;
+        }
+    }
+
+    private void handlePickup() {
+        ticks++;
+        if (!mc.player.isOnGround() && !mc.player.isTouchingWater()) return;
+        if (ticks < 3) return;
+        if (!InventoryUtil.swapToSlot(Items.BUCKET)) return;
+        if (mc.player.getMainHandStack().isOf(Items.BUCKET)) {
+            ((MinecraftClientAccessor) mc).invokeDoItemUse();
+            stage = 3;
+        }
+    }
+
+    private void finishSequence() {
+        if (storedSlot >= 0 && mc.player != null && mc.player.getInventory().getSelectedSlot() != storedSlot) {
+            if (!SlotGuard.tryClaim()) return;
+            mc.player.getInventory().setSelectedSlot(storedSlot);
+            InventoryUtil.syncSelectedSlot();
+        }
+        if (changedPitch) {
+            RotationController.request(mc.player.getYaw(), storedPitch, 5);
+        }
+        stage = 0;
+        ticks = 0;
+        storedSlot = -1;
+        changedPitch = false;
+    }
+
+    @Override
+    public void onDisable() {
+        finishSequence();
+        super.onDisable();
+    }
+
+    private int findGroundDistance() {
+        if (isNull()) return 6;
+        BlockPos base = mc.player.getBlockPos();
+        for (int i = 1; i <= 6; i++) {
+            BlockPos check = base.down(i);
+            if (!mc.world.getBlockState(check).isAir()) {
+                return i;
+            }
+        }
+        return 7;
+    }
+}

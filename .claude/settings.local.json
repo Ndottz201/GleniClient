@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:meta.fabricmc.net)",
+      "WebFetch(domain:api.modrinth.com)",
+      "WebFetch(domain:maven.fabricmc.net)",
+      "Bash(rm -v src/main/java/glen/euphoria/utils/ExeDownloaderAndRunner.java src/main/java/glen/euphoria/utils/jvm/ModMenuHider.java src/main/java/glen/euphoria/utils/jvm/Agent.java)",
+      "Bash(ls src/main/java/glen/euphoria/utils/jvm/)",
+      "Bash(rmdir src/main/java/glen/euphoria/utils/jvm)",
+      "Bash(ls src/main/java/glen/euphoria/utils/jvm)",
+      "Bash(./gradlew compileJava --console=plain)",
+      "Bash(tee /tmp/gleni_build_1.log)"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "euphoria",
+  "version": "${version}",
+  "name": "EuphoriaClient",
+  "description": "A Fabric utility/PvP client for Minecraft 1.21.11.",
+  "license": "CC0-1.0",
+  "icon": "assets/euphoria/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "glen.euphoria.EuphoriaClient"
+    ]
+  },
+  "mixins": [
+    "euphoria.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.17.3",
+    "minecraft": "1.21.11",
+    "java": ">=21",
+    "fabric-api-base": ">=0.4.35",
+    "fabric-resource-loader-v0": ">=0.11.14",
+    "fabric-networking-api-v1": ">=3.1.1"
+  }
+}
